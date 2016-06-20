@@ -18,10 +18,10 @@ data SigningRecord = SigningRecord { sigMethod :: RequestMethod
 
 data S3RequestType = HostStyleRequest | PathStyleRequest deriving (Eq, Show)
 
-data S3Request a = S3Request { s3Access      :: B.ByteString
+data S3Request = S3Request { s3Access      :: B.ByteString
                              , s3Secret      :: B.ByteString
                              , s3RequestType :: S3RequestType
-                             , s3Request     :: Request a
+                             , s3Request     :: Request B.ByteString
                              }
 
 md5sum :: B.ByteString -> B.ByteString
@@ -36,22 +36,26 @@ rfc1123DateString = "%a, %d %b %Y %H:%M:%S %Z"
 httpDateFormat :: FormatTime t => t -> B.ByteString
 httpDateFormat = B.pack . formatTime defaultTimeLocale rfc1123DateString
 
-canonizeRequestURI :: S3Request a -> Maybe (S3Request a)
-canonizeRequestURI req@(S3Request _ _ PathStyleRequest _) = req
+uriPlus :: B.ByteString -> B.ByteString -> B.ByteString
+uriPlus a b =
+    let sep = if (last . B.unpack) a == '/' then "" else "/" in
+    B.concat [a, sep, b]
+
+canonizeRequestString :: B.ByteString -> B.ByteString
+canonizeRequestString = id
+
+
+canonizeRequestURI :: S3Request -> Maybe S3Request
+canonizeRequestURI req@(S3Request _ _ PathStyleRequest _) = Just req
 canonizeRequestURI req =
-    let reqURI = rqURI req
-    in do
-      (reqPath, reqHost) <- breakURI reqURI
-      
-    canonizeRequestURI $
-                       req { s3RequestType = PathStyleRequest
-                           , s3Request = pathRequest
-                           }
+    do
+      (reqHost, reqPath) <- (breakURI . rqURI . s3Request) req
+      return $ req { s3RequestType = PathStyleRequest
+                   , s3Request = reqHost `uriPlus` reqPath
+                   }
     where
       uriHostPortion u = (uriRegName <$>) $ parseURI u >>= uriAuthority
       breakURI u = (\(a,b) -> ((,) a) <$> b) (uriPath u, uriHostPortion u)
-      hostToPathRequest :: Request a -> Request a
-      hostToPathRequest request =
 
 hashSigningRequest :: SigningRecord -> B.ByteString
 hashSigningRequest sigRecord =
